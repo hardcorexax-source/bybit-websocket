@@ -1,11 +1,14 @@
 <!DOCTYPE html>
+
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <title>Живой свечной график BTC/USDT с историей</title>
 
   <!-- Highcharts Stock -->
+
   <script src="https://code.highcharts.com/stock/highstock.js"></script>
+
   <script src="https://code.highcharts.com/modules/exporting.js"></script>
 
   <style>
@@ -21,92 +24,215 @@
       border-radius: 10px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
+    #info {
+      margin-top: 10px;
+      padding: 10px;
+      background: white;
+      border-radius: 5px;
+      font-size: 14px;
+      color: #666;
+    }
   </style>
+
 </head>
 <body>
 
 <h2>💹 Живой свечной график BTC/USDT с историей</h2>
 <div id="container"></div>
+<div id="info">Загрузка данных...</div>
 
 <script>
-const MAX_VISIBLE_CANDLES = 50; // всегда показываем максимум 50 свечей
-const series = chart.series[0];
-const candles = [];
+  const VISIBLE_CANDLES = 50; // количество видимых свечей
+  const CANDLE_INTERVAL = 60000; // 1 минута в миллисекундах
+  
+  let allCandles = []; // все свечи (история + новые)
+  let isUserZooming = false;
 
-const candleInterval = 60000; // 1 минута в мс
-
-async function loadHistory() {
-  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100`;
-  const response = await fetch(url);
-  const data = await response.json();
-
-  data.forEach(c => {
-    const candle = [
-      c[0],
-      parseFloat(c[1]),
-      parseFloat(c[2]),
-      parseFloat(c[3]),
-      parseFloat(c[4])
-    ];
-    candles.push(candle);
-    series.addPoint(candle, false);
-  });
-  chart.redraw();
-}
-
-function initWebSocket() {
-  const socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
-
-  socket.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    const price = parseFloat(msg.p);
-    const time = msg.T;
-    const candleTime = Math.floor(time / candleInterval) * candleInterval;
-
-    let candle = candles.find(c => c[0] === candleTime);
-
-    if (!candle) {
-      candle = [candleTime, price, price, price, price];
-      candles.push(candle);
-
-      // Определяем, пользователь в конце графика или отдалил
-      const xAxis = chart.xAxis[0];
-      const maxVisible = xAxis.max;
-      const isAtEnd = maxVisible >= series.data[series.data.length - 1].x;
-
-      series.addPoint(candle, true, isAtEnd && series.data.length >= MAX_VISIBLE_CANDLES);
-    } else {
-      candle[2] = Math.max(candle[2], price);
-      candle[3] = Math.min(candle[3], price);
-      candle[4] = price;
-      const lastPoint = series.data[series.data.length - 1];
-      lastPoint.update(candle, true, true);
-    }
-  };
-
-  socket.onerror = (err) => console.error("WebSocket ошибка:", err);
-  socket.onclose = () => console.warn("WebSocket закрыт");
-}
-
-// Ограничение видимых свечей при масштабировании
-chart.xAxis[0].update({
-  events: {
-    afterSetExtremes: function (e) {
-      const xAxis = this;
-      const visiblePoints = series.points.filter(p => p.x >= e.min && p.x <= e.max);
-      if (visiblePoints.length > MAX_VISIBLE_CANDLES) {
-        // Удаляем старые точки, только если пользователь не отдалил график
-        const excess = visiblePoints.length - MAX_VISIBLE_CANDLES;
-        for (let i = 0; i < excess; i++) {
-          series.data[i].remove(false);
+  const chart = Highcharts.stockChart('container', {
+    chart: {
+      events: {
+        selection: function(event) {
+          if (event.xAxis) {
+            isUserZooming = true;
+            return true;
+          }
         }
-        chart.redraw();
       }
+    },
+    rangeSelector: { 
+      enabled: true,
+      buttons: [{
+        type: 'minute',
+        count: 30,
+        text: '30m'
+      }, {
+        type: 'hour',
+        count: 1,
+        text: '1h'
+      }, {
+        type: 'hour',
+        count: 3,
+        text: '3h'
+      }, {
+        type: 'all',
+        text: 'Все'
+      }],
+      selected: 0,
+      inputEnabled: false
+    },
+    title: { text: 'BTC/USDT — свечи с историей и в реальном времени' },
+    xAxis: {
+      events: {
+        afterSetExtremes: function(e) {
+          if (e.trigger === 'rangeSelectorButton' || e.trigger === 'navigator') {
+            isUserZooming = true;
+          }
+          updateInfo();
+        }
+      }
+    },
+    series: [{
+      type: 'candlestick',
+      name: 'BTC/USDT',
+      data: [],
+      color: '#dc2626',
+      upColor: '#16a34a',
+      tooltip: { valueDecimals: 2 }
+    }],
+    credits: { enabled: false },
+    navigator: { enabled: true },
+    scrollbar: { enabled: true }
+  });
+
+  const series = chart.series[0];
+
+  function updateInfo() {
+    const visibleData = series.data.filter(point => point.isInside);
+    document.getElementById('info').textContent = 
+      `Всего свечей: ${allCandles.length} | Видимых: ${visibleData.length} | ` +
+      `Режим: ${isUserZooming ? 'Ручной зум' : 'Авто-прокрутка'}`;
+  }
+
+  // Функция для обновления видимого диапазона
+  function setVisibleRange() {
+    if (!isUserZooming && allCandles.length > 0) {
+      const lastCandle = allCandles[allCandles.length - 1];
+      const firstVisible = allCandles[Math.max(0, allCandles.length - VISIBLE_CANDLES)];
+      
+      chart.xAxis[0].setExtremes(
+        firstVisible[0],
+        lastCandle[0] + CANDLE_INTERVAL,
+        true,
+        false
+      );
     }
   }
-});
 
-loadHistory().then(initWebSocket);
+  // --- Загрузка исторических данных ---
+  async function loadHistory() {
+    try {
+      const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      allCandles = data.map(c => [
+        c[0],                  // timestamp
+        parseFloat(c[1]),      // open
+        parseFloat(c[2]),      // high
+        parseFloat(c[3]),      // low
+        parseFloat(c[4])       // close
+      ]);
+
+      // Добавляем все свечи в график
+      series.setData(allCandles, false);
+      
+      // Устанавливаем видимый диапазон
+      setVisibleRange();
+      
+      chart.redraw();
+      updateInfo();
+      
+      document.getElementById('info').textContent = `Загружено ${allCandles.length} свечей. Подключение к live данным...`;
+    } catch (error) {
+      console.error('Ошибка загрузки истории:', error);
+      document.getElementById('info').textContent = 'Ошибка загрузки данных';
+    }
+  }
+
+  // --- WebSocket для реального времени ---
+  function initWebSocket() {
+    const socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
+
+    socket.onopen = () => {
+      document.getElementById('info').textContent = 'Подключено к live данным';
+      updateInfo();
+    };
+
+    socket.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      const price = parseFloat(msg.p);
+      const time = msg.T;
+
+      const candleTime = Math.floor(time / CANDLE_INTERVAL) * CANDLE_INTERVAL;
+      
+      // Ищем существующую свечу
+      let candleIndex = allCandles.findIndex(c => c[0] === candleTime);
+
+      if (candleIndex === -1) {
+        // Новая свеча
+        const newCandle = [candleTime, price, price, price, price];
+        allCandles.push(newCandle);
+        
+        // Добавляем в график
+        series.addPoint(newCandle, false);
+        
+        // Если не в режиме зума, обновляем видимый диапазон
+        setVisibleRange();
+        
+        chart.redraw();
+        updateInfo();
+      } else {
+        // Обновляем существующую свечу
+        const candle = allCandles[candleIndex];
+        candle[2] = Math.max(candle[2], price); // high
+        candle[3] = Math.min(candle[3], price); // low
+        candle[4] = price; // close
+        
+        // Обновляем точку на графике
+        series.data[candleIndex].update(candle, true, false);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error("WebSocket ошибка:", err);
+      document.getElementById('info').textContent = 'Ошибка подключения к live данным';
+    };
+
+    socket.onclose = () => {
+      console.warn("WebSocket закрыт");
+      document.getElementById('info').textContent = 'Соединение закрыто. Переподключение...';
+      setTimeout(initWebSocket, 3000);
+    };
+  }
+
+  // Кнопка для возврата к авто-прокрутке
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      isUserZooming = false;
+      setVisibleRange();
+      updateInfo();
+    }
+  });
+
+  // Двойной клик для возврата к авто-прокрутке
+  document.getElementById('container').addEventListener('dblclick', () => {
+    isUserZooming = false;
+    setVisibleRange();
+    updateInfo();
+  });
+
+  // --- Запуск ---
+  loadHistory().then(initWebSocket);
 </script>
 
 </body>
