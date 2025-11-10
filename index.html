@@ -29,79 +29,84 @@
 <div id="container"></div>
 
 <script>
-  const chart = Highcharts.stockChart('container', {
-    rangeSelector: { enabled: false },
-    title: { text: 'BTC/USDT — свечи с историей и в реальном времени' },
-    series: [{
-      type: 'candlestick',
-      name: 'BTC/USDT',
-      data: [],           // пока пусто
-      color: '#dc2626',
-      upColor: '#16a34a',
-      tooltip: { valueDecimals: 2 }
-    }],
-    credits: { enabled: false },
-    navigator: { enabled: true },
-    scrollbar: { enabled: true }
+const MAX_VISIBLE_CANDLES = 50; // всегда показываем максимум 50 свечей
+const series = chart.series[0];
+const candles = [];
+
+const candleInterval = 60000; // 1 минута в мс
+
+async function loadHistory() {
+  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100`;
+  const response = await fetch(url);
+  const data = await response.json();
+
+  data.forEach(c => {
+    const candle = [
+      c[0],
+      parseFloat(c[1]),
+      parseFloat(c[2]),
+      parseFloat(c[3]),
+      parseFloat(c[4])
+    ];
+    candles.push(candle);
+    series.addPoint(candle, false);
   });
+  chart.redraw();
+}
 
-  const series = chart.series[0];
-  const candles = []; // для текущих свечей из WebSocket
+function initWebSocket() {
+  const socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
 
-  const candleInterval = 1000; // 1 минута
+  socket.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    const price = parseFloat(msg.p);
+    const time = msg.T;
+    const candleTime = Math.floor(time / candleInterval) * candleInterval;
 
-  // --- Шаг 1: Подгружаем исторические свечи ---
-  async function loadHistory() {
-    const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${candleInterval/1000}s&limit=50`;
-    const response = await fetch(url);
-    const data = await response.json();
+    let candle = candles.find(c => c[0] === candleTime);
 
-    // Преобразуем в формат Highcharts: [time, open, high, low, close]
-    data.forEach(c => {
-      const candle = [
-        c[0],                  // timestamp
-        parseFloat(c[1]),      // open
-        parseFloat(c[2]),      // high
-        parseFloat(c[3]),      // low
-        parseFloat(c[4])       // close
-      ];
+    if (!candle) {
+      candle = [candleTime, price, price, price, price];
       candles.push(candle);
-      series.addPoint(candle, false); // не рисуем сразу, чтобы нарисовать все разом
-    });
-    chart.redraw();
-  }
 
-  // --- Шаг 2: Подключаем WebSocket ---
-  function initWebSocket() {
-    const socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
+      // Определяем, пользователь в конце графика или отдалил
+      const xAxis = chart.xAxis[0];
+      const maxVisible = xAxis.max;
+      const isAtEnd = maxVisible >= series.data[series.data.length - 1].x;
 
-    socket.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      const price = parseFloat(msg.p);
-      const time = msg.T;
+      series.addPoint(candle, true, isAtEnd && series.data.length >= MAX_VISIBLE_CANDLES);
+    } else {
+      candle[2] = Math.max(candle[2], price);
+      candle[3] = Math.min(candle[3], price);
+      candle[4] = price;
+      const lastPoint = series.data[series.data.length - 1];
+      lastPoint.update(candle, true, true);
+    }
+  };
 
-      const candleTime = Math.floor(time / candleInterval) * candleInterval;
-      let candle = candles.find(c => c[0] === candleTime);
+  socket.onerror = (err) => console.error("WebSocket ошибка:", err);
+  socket.onclose = () => console.warn("WebSocket закрыт");
+}
 
-      if (!candle) {
-        candle = [candleTime, price, price, price, price];
-        candles.push(candle);
-        series.addPoint(candle, true, series.data.length >= 100);
-      } else {
-        candle[2] = Math.max(candle[2], price);
-        candle[3] = Math.min(candle[3], price);
-        candle[4] = price;
-        const lastPoint = series.data[series.data.length - 1];
-        lastPoint.update(candle, true, true);
+// Ограничение видимых свечей при масштабировании
+chart.xAxis[0].update({
+  events: {
+    afterSetExtremes: function (e) {
+      const xAxis = this;
+      const visiblePoints = series.points.filter(p => p.x >= e.min && p.x <= e.max);
+      if (visiblePoints.length > MAX_VISIBLE_CANDLES) {
+        // Удаляем старые точки, только если пользователь не отдалил график
+        const excess = visiblePoints.length - MAX_VISIBLE_CANDLES;
+        for (let i = 0; i < excess; i++) {
+          series.data[i].remove(false);
+        }
+        chart.redraw();
       }
-    };
-
-    socket.onerror = (err) => console.error("WebSocket ошибка:", err);
-    socket.onclose = () => console.warn("WebSocket закрыт");
+    }
   }
+});
 
-  // --- Запуск ---
-  loadHistory().then(initWebSocket);
+loadHistory().then(initWebSocket);
 </script>
 
 </body>
