@@ -1,14 +1,12 @@
 <!DOCTYPE html>
-
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Живой свечной график BTC/USDT с историей</title>
 
   <!-- Highcharts Stock -->
-
   <script src="https://code.highcharts.com/stock/highstock.js"></script>
-
   <script src="https://code.highcharts.com/modules/exporting.js"></script>
 
   <style>
@@ -22,27 +20,27 @@
       --tg-theme-secondary-bg-color: #f4f4f5;
     }
     
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     html {
       position: fixed;
       width: 100vw;
+      height: 100vh;
+      overflow: hidden;
     }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      margin: 0;
-      padding: 0;
       background: var(--tg-theme-bg-color);
       color: var(--tg-theme-text-color);
-    }
-
-    h2 {
-      margin: 0;
-      padding: 15px;
-      font-size: 18px;
-      font-weight: 600;
-      background: var(--tg-theme-secondary-bg-color);
-      color: var(--tg-theme-text-color);
-      border-bottom: 1px solid var(--tg-theme-hint-color);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     #controls {
@@ -51,6 +49,12 @@
       border-bottom: 1px solid var(--tg-theme-hint-color);
       overflow-x: auto;
       white-space: nowrap;
+      flex-shrink: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    #controls::-webkit-scrollbar {
+      display: none;
     }
 
     #controls strong {
@@ -72,10 +76,11 @@
       font-size: 13px;
       transition: all 0.2s;
       display: inline-block;
+      -webkit-tap-highlight-color: transparent;
     }
 
-    .interval-btn:hover {
-      opacity: 0.8;
+    .interval-btn:active {
+      transform: scale(0.95);
     }
 
     .interval-btn.active {
@@ -86,9 +91,10 @@
     }
 
     #container {
-      height: calc(100vh - 140px);
+      flex: 1;
       width: 100%;
       background: var(--tg-theme-bg-color);
+      overflow: hidden;
     }
 
     #info {
@@ -97,15 +103,14 @@
       font-size: 12px;
       color: var(--tg-theme-hint-color);
       border-top: 1px solid var(--tg-theme-hint-color);
+      flex-shrink: 0;
     }
   </style>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
 </head>
 <body>
 
-<h2>💹 Живой свечной график BTC/USDT с историей</h2>
 <div id="controls">
   <strong>Интервал свечей:</strong>
   <button class="interval-btn" data-interval="1000">1 секунда</button>
@@ -120,13 +125,25 @@
 <div id="info">Загрузка данных...</div>
 
 <script>
-  // Инициализация Telegram WebApp
+  // ========== ИНИЦИАЛИЗАЦИЯ TELEGRAM WEBAPP ==========
   let tg = window.Telegram?.WebApp;
   if (tg) {
     tg.ready();
     tg.expand();
     
-    // Применяем цвета Telegram
+    // Настройка нативного интерфейса Telegram
+    tg.setHeaderColor('secondary_bg_color');
+    
+    // Показываем кнопку "Назад" (маленькая кнопка слева вверху)
+    tg.BackButton.show();
+    tg.BackButton.onClick(() => {
+      tg.close();
+    });
+    
+    // Отключаем вертикальные свайпы для закрытия
+    tg.disableVerticalSwipes();
+    
+    // Применяем цветовую схему Telegram
     if (tg.themeParams) {
       document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#ffffff');
       document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color || '#000000');
@@ -136,9 +153,14 @@
       document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color || '#ffffff');
       document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', tg.themeParams.secondary_bg_color || '#f4f4f5');
     }
+    
+    // Настраиваем главную кнопку (появится когда пользователь зумирует)
+    tg.MainButton.setText('Сбросить зум');
+    tg.MainButton.color = tg.themeParams.button_color || '#2481cc';
+    tg.MainButton.textColor = tg.themeParams.button_text_color || '#ffffff';
   }
 
-  // Получаем CSS переменные для графика
+  // ========== ПОЛУЧЕНИЕ ЦВЕТОВ ТЕМЫ ==========
   const getThemeColors = () => {
     const computedStyle = getComputedStyle(document.documentElement);
     return {
@@ -150,15 +172,20 @@
     };
   };
 
+  // ========== НАСТРОЙКИ ГРАФИКА ==========
   const VISIBLE_CANDLES = 50;
   let CANDLE_INTERVAL = 60000;
   
   let allCandles = [];
   let isUserZooming = false;
   let socket = null;
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 10;
+  let reconnectTimeout = null;
 
   const themeColors = getThemeColors();
 
+  // ========== СОЗДАНИЕ ГРАФИКА ==========
   const chart = Highcharts.stockChart('container', {
     chart: {
       backgroundColor: themeColors.bg,
@@ -169,6 +196,7 @@
         selection: function(event) {
           if (event.xAxis) {
             isUserZooming = true;
+            updateMainButton();
             return true;
           }
         }
@@ -248,6 +276,7 @@
         afterSetExtremes: function(e) {
           if (e.trigger === 'rangeSelectorButton' || e.trigger === 'navigator') {
             isUserZooming = true;
+            updateMainButton();
           }
           updateInfo();
         }
@@ -266,10 +295,10 @@
       type: 'candlestick',
       name: 'BTC/USDT',
       data: [],
-      color: themeColors.button, // Для падающих свечей используем акцентный цвет
-      upColor: themeColors.button, // Для растущих свечей тоже акцентный
-      lineColor: themeColors.button,
-      upLineColor: themeColors.button,
+      color: '#ef4444',
+      upColor: '#10b981',
+      lineColor: '#ef4444',
+      upLineColor: '#10b981',
       tooltip: { 
         valueDecimals: 2,
         backgroundColor: themeColors.secondaryBg,
@@ -319,6 +348,33 @@
 
   const series = chart.series[0];
 
+  // ========== ОБНОВЛЕНИЕ ГЛАВНОЙ КНОПКИ TELEGRAM ==========
+  function updateMainButton() {
+    if (tg && tg.MainButton) {
+      if (isUserZooming) {
+        tg.MainButton.show();
+      } else {
+        tg.MainButton.hide();
+      }
+    }
+  }
+
+  // Обработчик нажатия на главную кнопку
+  if (tg && tg.MainButton) {
+    tg.MainButton.onClick(() => {
+      isUserZooming = false;
+      setVisibleRange();
+      updateInfo();
+      updateMainButton();
+      
+      // Вибрация при нажатии
+      if (tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred('light');
+      }
+    });
+  }
+
+  // ========== ОБНОВЛЕНИЕ ИНФОРМАЦИИ ==========
   function updateInfo() {
     const visibleData = series.data.filter(point => point.isInside);
     const intervalText = CANDLE_INTERVAL >= 60000 
@@ -330,7 +386,7 @@
       `Режим: ${isUserZooming ? 'Ручной зум' : 'Авто-прокрутка'}`;
   }
 
-  // Функция для обновления видимого диапазона
+  // ========== УСТАНОВКА ВИДИМОГО ДИАПАЗОНА ==========
   function setVisibleRange() {
     if (!isUserZooming && allCandles.length > 0) {
       const lastCandle = allCandles[allCandles.length - 1];
@@ -345,10 +401,9 @@
     }
   }
 
-  // --- Загрузка исторических данных ---
+  // ========== ЗАГРУЗКА ИСТОРИЧЕСКИХ ДАННЫХ ==========
   async function loadHistory() {
     try {
-      // Для Binance API используем ближайший доступный интервал
       let apiInterval = '1m';
       if (CANDLE_INTERVAL >= 60000) {
         const minutes = CANDLE_INTERVAL / 60000;
@@ -361,19 +416,15 @@
       const data = await response.json();
 
       allCandles = data.map(c => [
-        c[0],                  // timestamp
-        parseFloat(c[1]),      // open
-        parseFloat(c[2]),      // high
-        parseFloat(c[3]),      // low
-        parseFloat(c[4])       // close
+        c[0],
+        parseFloat(c[1]),
+        parseFloat(c[2]),
+        parseFloat(c[3]),
+        parseFloat(c[4])
       ]);
 
-      // Добавляем все свечи в график
       series.setData(allCandles, false);
-      
-      // Устанавливаем видимый диапазон
       setVisibleRange();
-      
       chart.redraw();
       updateInfo();
       
@@ -381,18 +432,17 @@
     } catch (error) {
       console.error('Ошибка загрузки истории:', error);
       document.getElementById('info').textContent = 'Ошибка загрузки данных';
+      
+      if (tg && tg.showAlert) {
+        tg.showAlert('Ошибка загрузки данных. Проверьте подключение к интернету.');
+      }
     }
   }
 
-  // --- WebSocket для реального времени ---
-  let reconnectAttempts = 0;
-  const maxReconnectAttempts = 10;
-  let reconnectTimeout = null;
-
+  // ========== WEBSOCKET ДЛЯ РЕАЛЬНОГО ВРЕМЕНИ ==========
   function initWebSocket() {
-    // Очищаем предыдущее соединение если есть
     if (socket) {
-      socket.onclose = null; // Убираем обработчик чтобы не вызвать переподключение
+      socket.onclose = null;
       socket.close();
     }
 
@@ -400,7 +450,7 @@
 
     socket.onopen = () => {
       console.log('WebSocket подключен');
-      reconnectAttempts = 0; // Сбрасываем счетчик при успешном подключении
+      reconnectAttempts = 0;
       updateInfo();
     };
 
@@ -410,31 +460,21 @@
       const time = msg.T;
 
       const candleTime = Math.floor(time / CANDLE_INTERVAL) * CANDLE_INTERVAL;
-      
-      // Ищем существующую свечу
       let candleIndex = allCandles.findIndex(c => c[0] === candleTime);
 
       if (candleIndex === -1) {
-        // Новая свеча
         const newCandle = [candleTime, price, price, price, price];
         allCandles.push(newCandle);
-        
-        // Добавляем в график
         series.addPoint(newCandle, false);
-        
-        // Если не в режиме зума, обновляем видимый диапазон
         setVisibleRange();
-        
         chart.redraw();
         updateInfo();
       } else {
-        // Обновляем существующую свечу
         const candle = allCandles[candleIndex];
-        candle[2] = Math.max(candle[2], price); // high
-        candle[3] = Math.min(candle[3], price); // low
-        candle[4] = price; // close
+        candle[2] = Math.max(candle[2], price);
+        candle[3] = Math.min(candle[3], price);
+        candle[4] = price;
         
-        // Обновляем точку на графике
         if (series.data[candleIndex]) {
           series.data[candleIndex].update(candle, true, false);
         }
@@ -448,10 +488,9 @@
     socket.onclose = (event) => {
       console.warn("WebSocket закрыт", event.code, event.reason);
       
-      // Пытаемся переподключиться с экспоненциальной задержкой
       if (reconnectAttempts < maxReconnectAttempts) {
         reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000); // Макс 30 сек
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
         console.log(`Переподключение через ${delay/1000} сек (попытка ${reconnectAttempts})`);
         
         if (reconnectTimeout) clearTimeout(reconnectTimeout);
@@ -463,19 +502,21 @@
     };
   }
 
-  // Обработчики кнопок интервалов
+  // ========== ОБРАБОТЧИКИ КНОПОК ИНТЕРВАЛОВ ==========
   document.querySelectorAll('.interval-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Обновляем активную кнопку
+      // Вибрация при нажатии
+      if (tg && tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred('light');
+      }
+      
       document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       
-      // Обновляем интервал
       CANDLE_INTERVAL = parseInt(btn.dataset.interval);
       
-      // Закрываем старое WebSocket соединение
       if (socket) {
-        socket.onclose = null; // Отключаем автоматическое переподключение
+        socket.onclose = null;
         socket.close();
       }
       if (reconnectTimeout) {
@@ -483,9 +524,9 @@
       }
       reconnectAttempts = 0;
       
-      // Сбрасываем данные и перезагружаем
       allCandles = [];
       isUserZooming = false;
+      updateMainButton();
       
       document.getElementById('info').textContent = 'Перезагрузка с новым интервалом...';
       
@@ -493,23 +534,19 @@
     });
   });
 
-  // Кнопка для возврата к авто-прокрутке
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      isUserZooming = false;
-      setVisibleRange();
-      updateInfo();
-    }
-  });
-
-  // Двойной клик для возврата к авто-прокрутке
+  // ========== ДВОЙНОЙ КЛИК ДЛЯ СБРОСА ЗУМА ==========
   document.getElementById('container').addEventListener('dblclick', () => {
     isUserZooming = false;
     setVisibleRange();
     updateInfo();
+    updateMainButton();
+    
+    if (tg && tg.HapticFeedback) {
+      tg.HapticFeedback.impactOccurred('medium');
+    }
   });
 
-  // --- Запуск ---
+  // ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
   loadHistory().then(initWebSocket);
 </script>
 
