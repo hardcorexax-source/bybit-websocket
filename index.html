@@ -214,15 +214,22 @@
   }
 
   // --- WebSocket для реального времени ---
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 10;
+  let reconnectTimeout = null;
+
   function initWebSocket() {
+    // Очищаем предыдущее соединение если есть
     if (socket) {
+      socket.onclose = null; // Убираем обработчик чтобы не вызвать переподключение
       socket.close();
     }
 
     socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
 
     socket.onopen = () => {
-      document.getElementById('info').textContent = 'Подключено к live данным';
+      console.log('WebSocket подключен');
+      reconnectAttempts = 0; // Сбрасываем счетчик при успешном подключении
       updateInfo();
     };
 
@@ -265,13 +272,23 @@
 
     socket.onerror = (err) => {
       console.error("WebSocket ошибка:", err);
-      document.getElementById('info').textContent = 'Ошибка подключения к live данным';
     };
 
-    socket.onclose = () => {
-      console.warn("WebSocket закрыт");
-      document.getElementById('info').textContent = 'Соединение закрыто. Переподключение...';
-      setTimeout(initWebSocket, 3000);
+    socket.onclose = (event) => {
+      console.warn("WebSocket закрыт", event.code, event.reason);
+      
+      // Пытаемся переподключиться с экспоненциальной задержкой
+      if (reconnectAttempts < maxReconnectAttempts) {
+        reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000); // Макс 30 сек
+        console.log(`Переподключение через ${delay/1000} сек (попытка ${reconnectAttempts})`);
+        
+        if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        reconnectTimeout = setTimeout(initWebSocket, delay);
+      } else {
+        console.error('Превышено максимальное количество попыток переподключения');
+        document.getElementById('info').textContent = 'Не удалось подключиться. Обновите страницу.';
+      }
     };
   }
 
@@ -284,6 +301,16 @@
       
       // Обновляем интервал
       CANDLE_INTERVAL = parseInt(btn.dataset.interval);
+      
+      // Закрываем старое WebSocket соединение
+      if (socket) {
+        socket.onclose = null; // Отключаем автоматическое переподключение
+        socket.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      reconnectAttempts = 0;
       
       // Сбрасываем данные и перезагружаем
       allCandles = [];
