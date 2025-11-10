@@ -39,8 +39,7 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       background: var(--tg-theme-bg-color);
       color: var(--tg-theme-text-color);
-      height: calc(100% - 40px);
-      padding-top: 40px;
+      height: 100%;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -117,12 +116,15 @@
       user-select: none;
       line-height: 1.4;
     }
+    #air {
+      height: 40px;
+    }
   </style>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-
+<div id="air"></div>
 <div id="controls">
   <strong>Интервал свечей:</strong>
   <button class="interval-btn" data-interval="1000">1 сек</button>
