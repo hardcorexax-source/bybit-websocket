@@ -12,54 +12,90 @@
   <script src="https://code.highcharts.com/modules/exporting.js"></script>
 
   <style>
+    :root {
+      --tg-theme-bg-color: #ffffff;
+      --tg-theme-text-color: #000000;
+      --tg-theme-hint-color: #999999;
+      --tg-theme-link-color: #2481cc;
+      --tg-theme-button-color: #2481cc;
+      --tg-theme-button-text-color: #ffffff;
+      --tg-theme-secondary-bg-color: #f4f4f5;
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      margin: 40px;
-      background: #f3f4f6;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: var(--tg-theme-bg-color);
+      color: var(--tg-theme-text-color);
     }
-    #controls {
-      margin-bottom: 20px;
+
+    h2 {
+      margin: 0;
       padding: 15px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      font-size: 18px;
+      font-weight: 600;
+      background: var(--tg-theme-secondary-bg-color);
+      color: var(--tg-theme-text-color);
+      border-bottom: 1px solid var(--tg-theme-hint-color);
     }
+
+    #controls {
+      padding: 12px;
+      background: var(--tg-theme-bg-color);
+      border-bottom: 1px solid var(--tg-theme-hint-color);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    #controls strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--tg-theme-hint-color);
+      font-weight: 500;
+    }
+
     .interval-btn {
-      padding: 8px 16px;
-      margin-right: 10px;
-      border: 2px solid #e5e7eb;
-      background: white;
-      border-radius: 5px;
+      padding: 6px 12px;
+      margin-right: 6px;
+      border: 1px solid var(--tg-theme-hint-color);
+      background: var(--tg-theme-bg-color);
+      color: var(--tg-theme-text-color);
+      border-radius: 8px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       transition: all 0.2s;
+      display: inline-block;
     }
+
     .interval-btn:hover {
-      border-color: #3b82f6;
-      background: #eff6ff;
+      opacity: 0.8;
     }
+
     .interval-btn.active {
-      border-color: #3b82f6;
-      background: #3b82f6;
-      color: white;
-      font-weight: bold;
+      background: var(--tg-theme-button-color);
+      color: var(--tg-theme-button-text-color);
+      border-color: var(--tg-theme-button-color);
+      font-weight: 500;
     }
+
     #container {
-      height: 600px;
-      min-width: 600px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      height: calc(100vh - 140px);
+      width: 100%;
+      background: var(--tg-theme-bg-color);
     }
+
     #info {
-      margin-top: 10px;
-      padding: 10px;
-      background: white;
-      border-radius: 5px;
-      font-size: 14px;
-      color: #666;
+      padding: 10px 15px;
+      background: var(--tg-theme-secondary-bg-color);
+      font-size: 12px;
+      color: var(--tg-theme-hint-color);
+      border-top: 1px solid var(--tg-theme-hint-color);
     }
   </style>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
 </head>
 <body>
@@ -79,15 +115,51 @@
 <div id="info">Загрузка данных...</div>
 
 <script>
-  const VISIBLE_CANDLES = 50; // количество видимых свечей
-  let CANDLE_INTERVAL = 60000; // начальный интервал - 1 минута
+  // Инициализация Telegram WebApp
+  let tg = window.Telegram?.WebApp;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    
+    // Применяем цвета Telegram
+    if (tg.themeParams) {
+      document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#ffffff');
+      document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color || '#000000');
+      document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color || '#999999');
+      document.documentElement.style.setProperty('--tg-theme-link-color', tg.themeParams.link_color || '#2481cc');
+      document.documentElement.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color || '#2481cc');
+      document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color || '#ffffff');
+      document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', tg.themeParams.secondary_bg_color || '#f4f4f5');
+    }
+  }
+
+  // Получаем CSS переменные для графика
+  const getThemeColors = () => {
+    const computedStyle = getComputedStyle(document.documentElement);
+    return {
+      bg: computedStyle.getPropertyValue('--tg-theme-bg-color').trim() || '#ffffff',
+      text: computedStyle.getPropertyValue('--tg-theme-text-color').trim() || '#000000',
+      hint: computedStyle.getPropertyValue('--tg-theme-hint-color').trim() || '#999999',
+      button: computedStyle.getPropertyValue('--tg-theme-button-color').trim() || '#2481cc',
+      secondaryBg: computedStyle.getPropertyValue('--tg-theme-secondary-bg-color').trim() || '#f4f4f5'
+    };
+  };
+
+  const VISIBLE_CANDLES = 50;
+  let CANDLE_INTERVAL = 60000;
   
-  let allCandles = []; // все свечи (история + новые)
+  let allCandles = [];
   let isUserZooming = false;
   let socket = null;
 
+  const themeColors = getThemeColors();
+
   const chart = Highcharts.stockChart('container', {
     chart: {
+      backgroundColor: themeColors.bg,
+      style: {
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+      },
       events: {
         selection: function(event) {
           if (event.xAxis) {
@@ -99,6 +171,35 @@
     },
     rangeSelector: { 
       enabled: true,
+      buttonTheme: {
+        fill: themeColors.bg,
+        stroke: themeColors.hint,
+        style: {
+          color: themeColors.text
+        },
+        states: {
+          hover: {
+            fill: themeColors.secondaryBg,
+            style: {
+              color: themeColors.text
+            }
+          },
+          select: {
+            fill: themeColors.button,
+            stroke: themeColors.button,
+            style: {
+              color: '#ffffff'
+            }
+          }
+        }
+      },
+      inputStyle: {
+        color: themeColors.text,
+        backgroundColor: themeColors.bg
+      },
+      labelStyle: {
+        color: themeColors.hint
+      },
       buttons: [{
         type: 'minute',
         count: 5,
@@ -122,8 +223,22 @@
       selected: 0,
       inputEnabled: false
     },
-    title: { text: 'BTC/USDT — свечи с историей и в реальном времени' },
+    title: { 
+      text: 'BTC/USDT',
+      style: {
+        color: themeColors.text,
+        fontSize: '16px',
+        fontWeight: '600'
+      }
+    },
     xAxis: {
+      lineColor: themeColors.hint,
+      tickColor: themeColors.hint,
+      labels: {
+        style: {
+          color: themeColors.text
+        }
+      },
       events: {
         afterSetExtremes: function(e) {
           if (e.trigger === 'rangeSelectorButton' || e.trigger === 'navigator') {
@@ -133,17 +248,68 @@
         }
       }
     },
+    yAxis: {
+      gridLineColor: themeColors.hint,
+      labels: {
+        style: {
+          color: themeColors.text
+        }
+      },
+      opposite: true
+    },
     series: [{
       type: 'candlestick',
       name: 'BTC/USDT',
       data: [],
-      color: '#dc2626',
-      upColor: '#16a34a',
-      tooltip: { valueDecimals: 2 }
+      color: themeColors.button, // Для падающих свечей используем акцентный цвет
+      upColor: themeColors.button, // Для растущих свечей тоже акцентный
+      lineColor: themeColors.button,
+      upLineColor: themeColors.button,
+      tooltip: { 
+        valueDecimals: 2,
+        backgroundColor: themeColors.secondaryBg,
+        borderColor: themeColors.hint,
+        style: {
+          color: themeColors.text
+        }
+      }
     }],
+    tooltip: {
+      backgroundColor: themeColors.secondaryBg,
+      borderColor: themeColors.hint,
+      style: {
+        color: themeColors.text
+      }
+    },
     credits: { enabled: false },
-    navigator: { enabled: true },
-    scrollbar: { enabled: true }
+    navigator: { 
+      enabled: true,
+      maskFill: themeColors.hint + '33',
+      outlineColor: themeColors.hint,
+      handles: {
+        backgroundColor: themeColors.button,
+        borderColor: themeColors.hint
+      },
+      xAxis: {
+        gridLineColor: themeColors.hint,
+        labels: {
+          style: {
+            color: themeColors.hint
+          }
+        }
+      }
+    },
+    scrollbar: { 
+      enabled: true,
+      barBackgroundColor: themeColors.hint,
+      barBorderColor: themeColors.hint,
+      buttonBackgroundColor: themeColors.secondaryBg,
+      buttonBorderColor: themeColors.hint,
+      buttonArrowColor: themeColors.text,
+      rifleColor: themeColors.text,
+      trackBackgroundColor: themeColors.secondaryBg,
+      trackBorderColor: themeColors.hint
+    }
   });
 
   const series = chart.series[0];
