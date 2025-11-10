@@ -2,8 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Живой свечной график BTC/USDT с историей</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BTC/USDT Chart</title>
 
   <!-- Highcharts Stock -->
   <script src="https://code.highcharts.com/stock/highstock.js"></script>
@@ -24,23 +24,26 @@
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
     }
 
     html {
       position: fixed;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       overflow: hidden;
+      -webkit-text-size-adjust: 100%;
     }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       background: var(--tg-theme-bg-color);
       color: var(--tg-theme-text-color);
-      height: 100vh;
+      height: 100%;
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      touch-action: pan-y;
     }
 
     #controls {
@@ -48,9 +51,11 @@
       background: var(--tg-theme-bg-color);
       border-bottom: 1px solid var(--tg-theme-hint-color);
       overflow-x: auto;
+      overflow-y: hidden;
       white-space: nowrap;
       flex-shrink: 0;
       -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
 
     #controls::-webkit-scrollbar {
@@ -63,31 +68,34 @@
       font-size: 13px;
       color: var(--tg-theme-hint-color);
       font-weight: 500;
+      user-select: none;
     }
 
     .interval-btn {
-      padding: 6px 12px;
+      padding: 8px 14px;
       margin-right: 6px;
       border: 1px solid var(--tg-theme-hint-color);
       background: var(--tg-theme-bg-color);
       color: var(--tg-theme-text-color);
-      border-radius: 8px;
+      border-radius: 10px;
       cursor: pointer;
-      font-size: 13px;
-      transition: all 0.2s;
+      font-size: 14px;
+      transition: all 0.15s ease;
       display: inline-block;
-      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-weight: 500;
     }
 
     .interval-btn:active {
-      transform: scale(0.95);
+      transform: scale(0.96);
+      opacity: 0.8;
     }
 
     .interval-btn.active {
       background: var(--tg-theme-button-color);
       color: var(--tg-theme-button-text-color);
       border-color: var(--tg-theme-button-color);
-      font-weight: 500;
+      font-weight: 600;
     }
 
     #container {
@@ -95,6 +103,7 @@
       width: 100%;
       background: var(--tg-theme-bg-color);
       overflow: hidden;
+      position: relative;
     }
 
     #info {
@@ -104,6 +113,8 @@
       color: var(--tg-theme-hint-color);
       border-top: 1px solid var(--tg-theme-hint-color);
       flex-shrink: 0;
+      user-select: none;
+      line-height: 1.4;
     }
   </style>
 
@@ -113,13 +124,13 @@
 
 <div id="controls">
   <strong>Интервал свечей:</strong>
-  <button class="interval-btn" data-interval="1000">1 секунда</button>
-  <button class="interval-btn" data-interval="5000">5 секунд</button>
-  <button class="interval-btn" data-interval="15000">15 секунд</button>
-  <button class="interval-btn" data-interval="30000">30 секунд</button>
-  <button class="interval-btn active" data-interval="60000">1 минута</button>
-  <button class="interval-btn" data-interval="300000">5 минут</button>
-  <button class="interval-btn" data-interval="900000">15 минут</button>
+  <button class="interval-btn" data-interval="1000">1 сек</button>
+  <button class="interval-btn" data-interval="5000">5 сек</button>
+  <button class="interval-btn" data-interval="15000">15 сек</button>
+  <button class="interval-btn" data-interval="30000">30 сек</button>
+  <button class="interval-btn active" data-interval="60000">1 мин</button>
+  <button class="interval-btn" data-interval="300000">5 мин</button>
+  <button class="interval-btn" data-interval="900000">15 мин</button>
 </div>
 <div id="container"></div>
 <div id="info">Загрузка данных...</div>
@@ -127,48 +138,93 @@
 <script>
   // ========== ИНИЦИАЛИЗАЦИЯ TELEGRAM WEBAPP ==========
   let tg = window.Telegram?.WebApp;
+  
   if (tg) {
     tg.ready();
+    
+    // Разворачиваем на весь экран
     tg.expand();
     
-    // Настройка нативного интерфейса Telegram
-    tg.setHeaderColor('secondary_bg_color');
+    // Отключаем подтверждение закрытия
+    tg.isClosingConfirmationEnabled = false;
     
-    // Показываем кнопку "Назад" (маленькая кнопка слева вверху)
-    tg.BackButton.show();
-    tg.BackButton.onClick(() => {
-      tg.close();
-    });
-    
-    // Отключаем вертикальные свайпы для закрытия
-    tg.disableVerticalSwipes();
-    
-    // Применяем цветовую схему Telegram
-    if (tg.themeParams) {
-      document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#ffffff');
-      document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color || '#000000');
-      document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color || '#999999');
-      document.documentElement.style.setProperty('--tg-theme-link-color', tg.themeParams.link_color || '#2481cc');
-      document.documentElement.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color || '#2481cc');
-      document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color || '#ffffff');
-      document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', tg.themeParams.secondary_bg_color || '#f4f4f5');
+    // Устанавливаем цвет заголовка (header color)
+    try {
+      if (tg.setHeaderColor) {
+        tg.setHeaderColor('secondary_bg_color');
+      }
+    } catch (e) {
+      console.log('setHeaderColor не поддерживается:', e);
     }
     
-    // Настраиваем главную кнопку (появится когда пользователь зумирует)
-    tg.MainButton.setText('Сбросить зум');
-    tg.MainButton.color = tg.themeParams.button_color || '#2481cc';
-    tg.MainButton.textColor = tg.themeParams.button_text_color || '#ffffff';
+    // Устанавливаем цвет фона
+    try {
+      if (tg.setBackgroundColor) {
+        tg.setBackgroundColor(tg.themeParams?.secondary_bg_color || '#f4f4f5');
+      }
+    } catch (e) {
+      console.log('setBackgroundColor не поддерживается:', e);
+    }
+    
+    // Показываем кнопку "Назад"
+    if (tg.BackButton) {
+      tg.BackButton.show();
+      tg.BackButton.onClick(() => {
+        tg.close();
+      });
+    }
+    
+    // Отключаем вертикальные свайпы
+    try {
+      if (tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+      }
+    } catch (e) {
+      console.log('disableVerticalSwipes не поддерживается');
+    }
+    
+    // Применяем тему Telegram
+    if (tg.themeParams) {
+      const p = tg.themeParams;
+      const root = document.documentElement;
+      
+      root.style.setProperty('--tg-theme-bg-color', p.bg_color || '#ffffff');
+      root.style.setProperty('--tg-theme-text-color', p.text_color || '#000000');
+      root.style.setProperty('--tg-theme-hint-color', p.hint_color || '#999999');
+      root.style.setProperty('--tg-theme-link-color', p.link_color || '#2481cc');
+      root.style.setProperty('--tg-theme-button-color', p.button_color || '#2481cc');
+      root.style.setProperty('--tg-theme-button-text-color', p.button_text_color || '#ffffff');
+      root.style.setProperty('--tg-theme-secondary-bg-color', p.secondary_bg_color || '#f4f4f5');
+    }
+    
+    // Настраиваем главную кнопку
+    if (tg.MainButton) {
+      tg.MainButton.setText('Сбросить зум');
+      tg.MainButton.color = tg.themeParams?.button_color || '#2481cc';
+      tg.MainButton.textColor = tg.themeParams?.button_text_color || '#ffffff';
+    }
+    
+    // Логирование для отладки
+    console.log('=== Telegram WebApp Info ===');
+    console.log('Version:', tg.version);
+    console.log('Platform:', tg.platform);
+    console.log('Color scheme:', tg.colorScheme);
+    console.log('Is expanded:', tg.isExpanded);
+    console.log('Viewport height:', tg.viewportHeight);
+    console.log('Viewport stable height:', tg.viewportStableHeight);
+  } else {
+    console.warn('Telegram WebApp не доступен. Открыто не в Telegram?');
   }
 
   // ========== ПОЛУЧЕНИЕ ЦВЕТОВ ТЕМЫ ==========
   const getThemeColors = () => {
-    const computedStyle = getComputedStyle(document.documentElement);
+    const s = getComputedStyle(document.documentElement);
     return {
-      bg: computedStyle.getPropertyValue('--tg-theme-bg-color').trim() || '#ffffff',
-      text: computedStyle.getPropertyValue('--tg-theme-text-color').trim() || '#000000',
-      hint: computedStyle.getPropertyValue('--tg-theme-hint-color').trim() || '#999999',
-      button: computedStyle.getPropertyValue('--tg-theme-button-color').trim() || '#2481cc',
-      secondaryBg: computedStyle.getPropertyValue('--tg-theme-secondary-bg-color').trim() || '#f4f4f5'
+      bg: s.getPropertyValue('--tg-theme-bg-color').trim() || '#ffffff',
+      text: s.getPropertyValue('--tg-theme-text-color').trim() || '#000000',
+      hint: s.getPropertyValue('--tg-theme-hint-color').trim() || '#999999',
+      button: s.getPropertyValue('--tg-theme-button-color').trim() || '#2481cc',
+      secondaryBg: s.getPropertyValue('--tg-theme-secondary-bg-color').trim() || '#f4f4f5'
     };
   };
 
@@ -208,7 +264,8 @@
         fill: themeColors.bg,
         stroke: themeColors.hint,
         style: {
-          color: themeColors.text
+          color: themeColors.text,
+          fontSize: '12px'
         },
         states: {
           hover: {
@@ -269,7 +326,8 @@
       tickColor: themeColors.hint,
       labels: {
         style: {
-          color: themeColors.text
+          color: themeColors.text,
+          fontSize: '11px'
         }
       },
       events: {
@@ -286,8 +344,11 @@
       gridLineColor: themeColors.hint,
       labels: {
         style: {
-          color: themeColors.text
-        }
+          color: themeColors.text,
+          fontSize: '11px'
+        },
+        align: 'left',
+        x: 5
       },
       opposite: true
     },
@@ -304,20 +365,24 @@
         backgroundColor: themeColors.secondaryBg,
         borderColor: themeColors.hint,
         style: {
-          color: themeColors.text
+          color: themeColors.text,
+          fontSize: '12px'
         }
       }
     }],
     tooltip: {
       backgroundColor: themeColors.secondaryBg,
       borderColor: themeColors.hint,
+      borderRadius: 8,
       style: {
-        color: themeColors.text
+        color: themeColors.text,
+        fontSize: '12px'
       }
     },
     credits: { enabled: false },
     navigator: { 
       enabled: true,
+      height: 40,
       maskFill: themeColors.hint + '33',
       outlineColor: themeColors.hint,
       handles: {
@@ -328,13 +393,15 @@
         gridLineColor: themeColors.hint,
         labels: {
           style: {
-            color: themeColors.hint
+            color: themeColors.hint,
+            fontSize: '10px'
           }
         }
       }
     },
     scrollbar: { 
       enabled: true,
+      height: 8,
       barBackgroundColor: themeColors.hint,
       barBorderColor: themeColors.hint,
       buttonBackgroundColor: themeColors.secondaryBg,
@@ -367,7 +434,6 @@
       updateInfo();
       updateMainButton();
       
-      // Вибрация при нажатии
       if (tg.HapticFeedback) {
         tg.HapticFeedback.impactOccurred('light');
       }
@@ -382,8 +448,8 @@
       : `${CANDLE_INTERVAL/1000} сек`;
     
     document.getElementById('info').textContent = 
-      `Интервал: ${intervalText} | Всего свечей: ${allCandles.length} | Видимых: ${visibleData.length} | ` +
-      `Режим: ${isUserZooming ? 'Ручной зум' : 'Авто-прокрутка'}`;
+      `Интервал: ${intervalText} • Всего: ${allCandles.length} • Видимых: ${visibleData.length} • ` +
+      `${isUserZooming ? '🔍 Ручной зум' : '📊 Авто-прокрутка'}`;
   }
 
   // ========== УСТАНОВКА ВИДИМОГО ДИАПАЗОНА ==========
@@ -413,6 +479,11 @@
       
       const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${apiInterval}&limit=100`;
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
 
       allCandles = data.map(c => [
@@ -428,10 +499,10 @@
       chart.redraw();
       updateInfo();
       
-      document.getElementById('info').textContent = `Загружено ${allCandles.length} свечей. Подключение к live данным...`;
+      document.getElementById('info').textContent = `✅ Загружено ${allCandles.length} свечей. Подключение...`;
     } catch (error) {
       console.error('Ошибка загрузки истории:', error);
-      document.getElementById('info').textContent = 'Ошибка загрузки данных';
+      document.getElementById('info').textContent = '❌ Ошибка загрузки данных';
       
       if (tg && tg.showAlert) {
         tg.showAlert('Ошибка загрузки данных. Проверьте подключение к интернету.');
@@ -449,7 +520,7 @@
     socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
 
     socket.onopen = () => {
-      console.log('WebSocket подключен');
+      console.log('✅ WebSocket подключен');
       reconnectAttempts = 0;
       updateInfo();
     };
@@ -482,22 +553,22 @@
     };
 
     socket.onerror = (err) => {
-      console.error("WebSocket ошибка:", err);
+      console.error("❌ WebSocket ошибка:", err);
     };
 
     socket.onclose = (event) => {
-      console.warn("WebSocket закрыт", event.code, event.reason);
+      console.warn("⚠️ WebSocket закрыт", event.code, event.reason);
       
       if (reconnectAttempts < maxReconnectAttempts) {
         reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-        console.log(`Переподключение через ${delay/1000} сек (попытка ${reconnectAttempts})`);
+        console.log(`🔄 Переподключение через ${delay/1000} сек (попытка ${reconnectAttempts})`);
         
         if (reconnectTimeout) clearTimeout(reconnectTimeout);
         reconnectTimeout = setTimeout(initWebSocket, delay);
       } else {
-        console.error('Превышено максимальное количество попыток переподключения');
-        document.getElementById('info').textContent = 'Не удалось подключиться. Обновите страницу.';
+        console.error('❌ Превышено максимальное количество попыток переподключения');
+        document.getElementById('info').textContent = '❌ Не удалось подключиться. Обновите страницу.';
       }
     };
   }
@@ -505,7 +576,6 @@
   // ========== ОБРАБОТЧИКИ КНОПОК ИНТЕРВАЛОВ ==========
   document.querySelectorAll('.interval-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Вибрация при нажатии
       if (tg && tg.HapticFeedback) {
         tg.HapticFeedback.impactOccurred('light');
       }
@@ -528,22 +598,33 @@
       isUserZooming = false;
       updateMainButton();
       
-      document.getElementById('info').textContent = 'Перезагрузка с новым интервалом...';
+      document.getElementById('info').textContent = '🔄 Перезагрузка с новым интервалом...';
       
       loadHistory().then(initWebSocket);
     });
   });
 
   // ========== ДВОЙНОЙ КЛИК ДЛЯ СБРОСА ЗУМА ==========
-  document.getElementById('container').addEventListener('dblclick', () => {
-    isUserZooming = false;
-    setVisibleRange();
-    updateInfo();
-    updateMainButton();
+  let lastTap = 0;
+  document.getElementById('container').addEventListener('click', (e) => {
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTap;
     
-    if (tg && tg.HapticFeedback) {
-      tg.HapticFeedback.impactOccurred('medium');
+    if (tapLength < 300 && tapLength > 0) {
+      // Двойной клик
+      isUserZooming = false;
+      setVisibleRange();
+      updateInfo();
+      updateMainButton();
+      
+      if (tg && tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred('medium');
+      }
+      
+      e.preventDefault();
     }
+    
+    lastTap = currentTime;
   });
 
   // ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
